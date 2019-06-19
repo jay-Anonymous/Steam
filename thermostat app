@@ -1,0 +1,115 @@
+import Vapor
+	
+	public func app(_ environment: Environment) throws -> Application {
+	    var environment = environment
+	    try LoggingSystem.bootstrap(from: &environment)
+	    let app = Application(environment: environment, configure: configure)
+	    try boot(app)
+	    return app
+  5  Sources/Development/boot.swift 
+
+@@ -1,7 +1,6 @@
+	import Vapor
+	
+	public func boot(_ app: Application) throws {
+	    // let c = try app.makeContainer().wait()
+	    // defer { c.shutdown() }
+	    // use container
+	    try LoggingSystem.bootstrap(from: &app.environment)
+	    try app.boot()
+	}
+  13  Sources/Vapor/Application.swift 
+
+@@ -1,7 +1,7 @@
+	import NIO
+	
+	public final class Application {
+	    public let environment: Environment
+	    public var environment: Environment
+	
+	    public let eventLoopGroup: EventLoopGroup
+	
+ @@ -18,6 +18,8 @@ public final class Application {
+	    public var running: Running?
+	
+	    public var logger: Logger
+	
+	    private var _services: Services!
+	
+	    public struct Running {
+	        public var stop: () -> Void
+ @@ -75,6 +77,12 @@ public final class Application {
+	    }
+	
+	    // MARK: Run
+	
+	    public func boot() throws {
+	        self._services = try self.makeServices()
+	        try self._services.providers.forEach { try $0.willBoot(self) }
+	        try self._services.providers.forEach { try $0.didBoot(self) }
+	    }
+	
+	    public func run() throws {
+	        self.logger = .init(label: "codes.vapor.application")
+ @@ -111,6 +119,9 @@ public final class Application {
+	
+	    public func shutdown() {
+	        self.logger.debug("Application shutting down")
+	        if self._services != nil {
+	            self._services.providers.forEach { $0.willShutdown(self) }
+	        }
+	        do {
+	            try self.eventLoopGroup.syncShutdownGracefully()
+	        } catch {
+  12  Sources/Vapor/Services/Provider.swift 
+
+ @@ -36,6 +36,12 @@ public protocol Provider {
+	    ///
+	    func register(_ s: inout Services)
+	
+	    func willBoot(_ application: Application) throws
+	
+	    func didBoot(_ application: Application) throws
+	
+	    func willShutdown(_ application: Application)
+	
+	    /// Called before the container has fully initialized.
+	    func willBoot(_ c: Container) -> EventLoopFuture<Void>
+	
+ @@ -59,4 +65,10 @@ extension Provider {
+	
+	    /// Default implementation.
+	    public func willShutdown(_ c: Container) { }
+	
+	    public func willBoot(_ application: Application) throws { }
+	
+	    public func didBoot(_ application: Application) throws { }
+	
+	    public func willShutdown(_ application: Application) { }
+	}
+  5  Tests/VaporTests/ApplicationTests.swift 
+
+ @@ -5,6 +5,7 @@ final class ApplicationTests: XCTestCase {
+	    func testApplicationStop() throws {
+	        let test = Environment(name: "testing", arguments: ["vapor"])
+	        let app = Application(environment: test)
+	        try app.boot()
+	        DispatchQueue.global().async {
+	            COperatingSystem.sleep(1)
+	            app.running?.stop()
+ @@ -979,12 +980,14 @@ extension Application {
+	        configure: @escaping (inout Services) throws -> () = { _ in },
+	        routes: @escaping (inout Routes, Container) throws -> () = { _, _ in }
+	    ) -> Application {
+	        return Application(environment: .testing) { s in
+	        let app = Application(environment: .testing) { s in
+	            try configure(&s)
+	            s.extend(Routes.self) { r, c in
+	                try routes(&r, c)
+	            }
+	        }
+	        try! app.boot()
+	        return app
+	    }
+	}
+	
